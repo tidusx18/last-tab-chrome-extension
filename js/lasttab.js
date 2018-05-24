@@ -3,45 +3,119 @@
  * @author: Daniel Victoriano <victorianowebdesign@gmail.com>
  * @license: MIT
  */
-let currentTab = chrome.tabs.query({ lastFocusedWindow: true, active: true }, async(tabs) => { return tabs[0] });
-let oldTab = currentTab;
-let tabRemoved = false;
 
-chrome.tabs.onActivated.addListener(function(activeInfo) {
 
-	oldTab = tabRemoved ? activeInfo.tabId : currentTab;
-	currentTab = activeInfo.tabId;
+let initTab, currentTab, oldTab, currWindow, oldWindow, tabRemoved;
 
-    // console.log('\n\r')
-    // console.log(`Current Tab: ${currentTab}`)
-    // console.log(`Old Tab: ${oldTab}`)
+
+init();
+
+
+async function init() {
+
+    initTab = await queryTab();
+    // console.log(initTab)
+
+    currWindow = initTab.windowId;
+    oldWindow = currWindow;
+
+    currentTab = initTab.id;
+    oldTab = currentTab;
 
     tabRemoved = false;
 
+}
+
+
+// listen for activated tabs
+chrome.tabs.onActivated.addListener(async function(tab) {
+
+    if (currWindow !== tab.windowId) { return; }
+
+    let activeTab = await queryTab();
+
+    if (currentTab === activeTab.id) { return; }
+
+    oldTab = tabRemoved ? tab.tabId : currentTab;
+    currentTab = tab.tabId;
+    tabRemoved = false;
+
+    // console.log('Old/Curr Tabs: ', oldTab, currentTab)
+
 });
 
-//listen for the Alt + Z keypress event
-chrome.commands.onCommand.addListener(function(command) {
 
-    if (command == "switch") {
+// listen for activated tabs across browser windows
+chrome.windows.onFocusChanged.addListener(async(windowId) => {
 
-        // console.log('\n\r')
-        // console.log('Switching tabs')
-        // console.log(`Current Tab: ${currentTab}`)
-        // console.log(`Old Tab: ${oldTab}`)
+    if (!windowId || windowId === -1) { return; }
 
-        chrome.tabs.update(oldTab, { selected: true });
-    }
+    oldWindow = currWindow;
+    currWindow = windowId;
+
+    let activeTab = await queryTab();
+
+    if (currentTab === activeTab.id) { return; }
+
+    oldTab = currentTab;
+    currentTab = activeTab.id;
+
+    // console.log("window switch: ", oldWindow, currWindow);
+    // console.log('Old/Curr Tabs: ', oldTab, currentTab)
+
 });
 
-//listen when a tab is closed
+
+function getOldTab() {
+
+    return new Promise((resolve, reject) => {
+
+        chrome.tabs.get(oldTab, (tab) => {
+
+            resolve(tab);
+
+        });
+
+    });
+
+}
+
+
+function queryTab() {
+
+    return new Promise((resolve, reject) => {
+
+        chrome.tabs.query({ lastFocusedWindow: true, windowType: 'normal', active: true }, (tabs) => {
+
+            resolve(tabs[0]);
+
+        });
+
+    });
+
+}
+
+
+//listen for closed tabs
 chrome.tabs.onRemoved.addListener(function() {
 
     tabRemoved = true;
+
 });
 
-// function setOldTab() {
 
-// 	if(tabRemoved) { old }
-// 	if(!tabRemoved) {  }
-// }
+//listen for hotkey press
+chrome.commands.onCommand.addListener(async function(command) {
+
+    if (command == "switch") {
+
+        let oldTabInfo = await getOldTab();
+
+        chrome.tabs.update(oldTab, { active: true });
+        if (oldTabInfo.windowId !== currWindow) { chrome.windows.update(oldWindow, { focused: true }); }
+
+    }
+
+    // console.log('Hotkey Pressed - Old/Curr Tabs & Curr Window: ', oldTab, currentTab, currWindow)
+
+});
